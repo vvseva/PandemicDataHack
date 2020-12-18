@@ -1,0 +1,230 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+
+df = vroom::vroom("~/noobsQA/rabota/bezrab1.csv")
+
+library(caret)
+train.index <- createDataPartition(Data$Class, p = .7, list = FALSE)
+train <- Data[ train.index,]
+test  <- Data[-train.index,]
+
+set.seed(42)
+train.index <- createDataPartition(df$region, p = 0.003, list = FALSE)
+
+bezrab1_sample = df[train.index,]
+
+10000/nrow(df)
+vroom::vroom_write(bezrab1_sample, "bezrab1_sample.csv")
+
+```
+
+
+```{r}
+df %>% 
+  # mutate(prf = word(profession_last_work) %>% str_remove(",")) %>% 
+  count(profession_last_work)
+
+df = df %>% 
+  mutate(month_end_busyness = ymd(month_end_busyness))
+
+df = df %>% 
+  filter(month_end_busyness > '2020-01-01' & month_end_busyness < '2020-07-01') %>% 
+  mutate(old_fag = month_end_busyness > '2020-04-01' & month_end_busyness < '2020-07-01')
+
+df %>% 
+  count(old_fag)
+```
+
+```{r}
+df %>% 
+  count(month_employment) %>% 
+  arrange(-n)
+
+df %>% select(profession_last_work, hc_didnotwork, jobless_short) %>% 
+  filter(profession_last_work == "ANONYMIZATION") %>% 
+  count(hc_didnotwork, jobless_short, profession_last_work) %>% 
+  ggplot(aes(y = n, x = jobless_short))+
+  geom_bar(stat = "identity")
+
+df %>% 
+  select(profession_last_work, hc_didnotwork) %>% 
+  filter(hc_didnotwork == "TRUE") %>% 
+  count(profession_last_work) %>% 
+  arrange(-n) %>% 
+  head(9)
+```
+
+
+
+
+```{r}
+
+library(lubridate)
+
+logDice <- function(f.x, f.y) {
+  f.xy = sum(f.x + f.y)
+    return(14 + log2( (2 * f.xy) / (f.x + f.y) ))
+}
+
+logratio <- function(a, b) {
+    return(log2((a/sum(a)/(b/sum(b)))))
+}
+# df = df  %>% 
+#   mutate(month_end_busyness = ymd(month_end_busyness))
+
+df %>% 
+  # head(100000) %>% 
+  mutate(profession_last_work = word(profession_last_work) %>% str_remove(",")) %>%
+  mutate(profession_last_work = case_when(
+    hc_didnotwork == TRUE ~ "Не работал",
+    TRUE ~ profession_last_work
+  )) %>% 
+  select(profession_last_work, month_end_busyness) -> df_draw
+
+
+df_draw %>%
+  filter(month_end_busyness < "2020-07-01") %>% 
+  mutate(
+    employment_period = case_when(
+      # month_employment == "2020-12-31" ~ "unemp",
+      month_end_busyness < "2020-07-01" & month_end_busyness > "2020-04-01" ~ "during_lock",
+      TRUE ~ "no_lock"
+    )
+  ) %>% 
+  count(profession_last_work, employment_period) %>%
+  mutate(n = n %>%  replace_na(0)) %>%
+  group_by(employment_period) -> df_draw_c
+  # mutate(freq = n / sum(n)) %>% ungroup()-> df_draw_c
+
+df_draw_c
+
+# library(viridis)
+# viridis(7, begin = 0, end = 0.85, option = 'B')[7] # "#FBBE22FF"
+# viridis(7, begin = 0, end = 0.75, option = 'B')[2] # "#210C4AFF"
+# alpha где-то 0.5
+
+df_draw_c %>% 
+  # filter(n < 50000) %>% 
+  # group_by(profession_last_work) %>% 
+  # mutate(n2 = n()) %>% 
+  # filter(n2> 1)# %>%
+  select(profession_last_work, employment_period, n) %>% 
+  pivot_wider(values_from = n, names_from = employment_period) %>% 
+  mutate_at(c("during_lock", "no_lock"), ~replace_na(.,0)) %>% 
+  mutate(LD  = logratio(during_lock, no_lock)) %>% 
+  mutate(during_lock_p = during_lock / sum (during_lock),
+         no_lock_p = no_lock / sum (no_lock),
+         size = no_lock+during_lock) -> df_draw_c_end
+
+g1 = df_draw_c_end %>% 
+  filter(profession_last_work != "None" & profession_last_work !="Не работал" & profession_last_work != "ANONYMIZATION") %>% 
+  # filter(size> 100) %>%
+  # slice_max( abs(LD),n = 20) %>% 
+  ggplot(aes(x = during_lock, y = no_lock))+
+  geom_point(aes(size = size),color = "#FBBE22FF")+
+  geom_line(data = tibble(x1 = c(0, 100000), y1 = c(0, 100000)), aes(x1, y1), alpha = 0.5)+
+  geom_text( aes(label=profession_last_work),hjust=1, vjust=0)+
+  theme_minimal()+
+  # ggrepel::geom_text_repel(aes(label=profession_last_work))+
+  ggtitle("Share of the last profession proportions", "Потеря работы")+
+  xlab("During lockdown: from 2020-07-01 to 2020-04-01")+
+  ylab("No lockdown")#+
+  # scale_y_continuous(labels = scales::percent_format())+
+  # scale_x_continuous(labels = scales::percent_format())+
+  # coord_cartesian(ylim = c(0, 0.007516), xlim = c(0, 0.016))
+  # coord_cartesian(ylim = c(0, 0.007516), xlim = c(0, 0.016))
+g1
+ggsave(g1, filename = "share.png", width = 10, height = 10)
+
+?ggsave
+```
+
+```{r}
+library(plotly)
+
+g1 %>% 
+  ggplotly() #%>% 
+
+plot_ly() %>% 
+  add_segments(x = 0, xend = 70000, y = 0, yend = 70000)
+```
+
+
+```{r}
+df_draw_c_end %>% 
+  filter(during_lock < 0.05) %>% 
+  ggplot(aes(x = during_lock, y = no_lock))+
+  geom_point(color = "#FBBE22FF")+
+  geom_line(data = tibble(x1 = c(0, Inf), y1 = c(0, Inf)), aes(x1, y1), alpha = 0.5)+
+  geom_text( aes(label=profession_last_work),hjust=1, vjust=0)+
+  theme_minimal()+
+  # ggrepel::geom_text_repel(df_draw_c_end[df_draw_c_end$during_lock > 0.1], aes(label=profession_last_work))+
+  ggtitle("Share of the last profession proportions", "Потеря работы")+
+  xlab("During lockdown: from 2020-07-01 to 2020-04-01")+
+  ylab("No lockdown")+
+  scale_x_log10()+
+  scale_y_log10()
+```
+
+
+```{r}
+df_draw_c_end %>% 
+  filter(during_lock < 0.075) %>% 
+  ggplot(aes(x = during_lock, y = no_lock))+
+  geom_point(color = "#FBBE22FF")+
+  geom_line(data = tibble(x1 = c(0, Inf), y1 = c(0, Inf)), aes(x1, y1), alpha = 0.5)+
+  geom_text( aes(label=profession_last_work),hjust=1, vjust=0)+
+  theme_minimal()+
+  # ggrepel::geom_text_repel(df_draw_c_end[df_draw_c_end$during_lock > 0.1], aes(label=profession_last_work))+
+  ggtitle("Share of the last profession proportions", "Потеря работы")+
+  xlab("During lockdown: from 2020-07-01 to 2020-04-01")+
+  ylab("No lockdown")
+```
+
+```{r}
+df_draw_c_end %>%
+  slice_max(during_lock, n = 100) %>% 
+  slice_min(during_lock, n = 20) %>% 
+  ggplot(aes(x = during_lock, y = no_lock))+
+  geom_point(color = "#FBBE22FF")+
+  geom_line(data = tibble(x1 = c(0, Inf), y1 = c(0, Inf)), aes(x1, y1), alpha = 0.5)+
+  geom_text( aes(label=profession_last_work),hjust=1, vjust=0)+
+  theme_minimal()+
+  ggrepel::geom_text_repel( aes(label=profession_last_work))+
+  ggtitle("Share of the last profession proportions", "Потеря работы")+
+  xlab("During lockdown: from 2020-07-01 to 2020-04-01")+
+  ylab("No lockdown")+
+  scale_x_log10()+
+  scale_y_log10()
+```
+
+
+
+```{r}
+prof = df %>% select(profession_last_work)
+
+prof %>% count(profession_last_work) %>% 
+  arrange(-n)
+```
+
+```{r}
+month_end_business 
+```
+
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
