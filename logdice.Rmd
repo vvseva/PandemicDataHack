@@ -2,7 +2,7 @@
 title: "R Notebook"
 output: html_notebook
 editor_options: 
-  chunk_output_type: console
+  chunk_output_type: inline
 ---
 
 This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
@@ -32,22 +32,44 @@ vroom::vroom_write(bezrab1_sample, "bezrab1_sample.csv")
 ```{r}
 df %>% 
   # mutate(prf = word(profession_last_work) %>% str_remove(",")) %>% 
-  count(profession_last_work)
+  count(profession_last_work) -> profs
+
+write.csv(profs, file = "profs.csv")
+
+profs %>%
+  mutate(profession_last_work = profession_last_work %>%  
+           str_remove("\\(.+") %>% 
+           str_remove(",.+") %>% 
+           str_remove("Главный") %>% 
+           str_remove("Генеральный") %>% 
+           str_to_lower())
 
 df = df %>% 
-  mutate(month_end_busyness = ymd(month_end_busyness))
+  mutate(month_end_busyness = ymd(month_end_busyness)) 
 
 df = df %>% 
-  filter(month_end_busyness > '2020-01-01' & month_end_busyness < '2020-07-01') %>% 
-  mutate(old_fag = month_end_busyness > '2020-04-01' & month_end_busyness < '2020-07-01')
+  filter(month_dismissal != "None") %>% 
+  mutate(month_dismissal =  str_c(month_dismissal, "-01") %>% ymd()) %>% 
+  filter(month_dismissal > '2019-10-01' & month_dismissal < '2020-07-01') %>% 
+  mutate(old_fag = month_dismissal > '2020-04-01' & month_dismissal < '2020-07-01')
+
 
 df %>% 
   count(old_fag)
 ```
 
 ```{r}
+
+professions_profs = professions_profs %>% 
+  mutate(industry = industry %>% str_remove("\\[.+\\]"))
+
 df %>% 
   count(month_employment) %>% 
+  arrange(-n)
+
+df %>% 
+  left_join(professions_profs %>% select(profession_last_work, industry)) %>% 
+  count(industry) %>% 
   arrange(-n)
 
 df %>% select(profession_last_work, hc_didnotwork, jobless_short) %>% 
@@ -62,6 +84,10 @@ df %>%
   count(profession_last_work) %>% 
   arrange(-n) %>% 
   head(9)
+
+df %>% 
+  count(region) %>% 
+  arrange(-n)
 ```
 
 
@@ -71,38 +97,59 @@ df %>%
 
 library(lubridate)
 
-logDice <- function(f.x, f.y) {
-  f.xy = sum(f.x + f.y)
+logDice <- function(f.xy, f.x, f.y) {
+  # f.xy = sum(f.x + f.y)
     return(14 + log2( (2 * f.xy) / (f.x + f.y) ))
 }
 
 logratio <- function(a, b) {
     return(log2((a/sum(a)/(b/sum(b)))))
 }
+
+# library(questionr)
+# library(epitools)
+tbl = tibble(x = c(1, 100), y = c(10, 3))
+epitools::oddsratio(tbl %>% as.matrix)
+
+log_ratio <- function(a, b)  {
+ return(log2(a / b) )
+}
+
+ratio <- function(a, b) {
+    return((a/sum(a)/(b/sum(b))))
+}
 # df = df  %>% 
 #   mutate(month_end_busyness = ymd(month_end_busyness))
 
 df %>% 
-  # head(100000) %>% 
-  mutate(profession_last_work = word(profession_last_work) %>% str_remove(",")) %>%
-  mutate(profession_last_work = case_when(
-    hc_didnotwork == TRUE ~ "Не работал",
-    TRUE ~ profession_last_work
-  )) %>% 
-  select(profession_last_work, month_end_busyness) -> df_draw
+  filter(region == "Свердловская область") %>%
+  # mutate(profession_last_work = profession_last_work %>%  
+  #          str_remove("\\(.+") %>% 
+  #          str_remove(",.+") %>% 
+  #          str_remove("Главный") %>% 
+  #          str_remove("Генеральный") %>% 
+  #          str_to_lower() %>% 
+  #          word()) %>%
+  left_join(professions_profs %>% select(profession_last_work, industry)) %>% 
+  # mutate(profession_last_work = case_when(
+  #   hc_didnotwork == TRUE ~ "Не работал",
+  #   TRUE ~ profession_last_work
+  # )) %>% 
+  select(industry, month_dismissal) -> df_draw
 
 
 df_draw %>%
-  filter(month_end_busyness < "2020-07-01") %>% 
+  filter(month_dismissal < "2020-07-01") %>% 
   mutate(
     employment_period = case_when(
       # month_employment == "2020-12-31" ~ "unemp",
-      month_end_busyness < "2020-07-01" & month_end_busyness > "2020-04-01" ~ "during_lock",
+      month_dismissal < "2020-07-01" & month_dismissal > "2020-04-01" ~ "during_lock",
       TRUE ~ "no_lock"
     )
   ) %>% 
-  count(profession_last_work, employment_period) %>%
+  count(industry, employment_period) %>%
   mutate(n = n %>%  replace_na(0)) %>%
+  filter(n > 100) %>% 
   group_by(employment_period) -> df_draw_c
   # mutate(freq = n / sum(n)) %>% ungroup()-> df_draw_c
 
@@ -114,40 +161,90 @@ df_draw_c
 # alpha где-то 0.5
 
 df_draw_c %>% 
+  select(industry, n) %>% 
+  group_by(industry) %>% 
+  summarise(n = sum(n)) %>% 
+  mutate(freq = n / sum(n)) -> df_draw_c_end_ALL
+
+df_draw_c %>% 
   # filter(n < 50000) %>% 
   # group_by(profession_last_work) %>% 
   # mutate(n2 = n()) %>% 
   # filter(n2> 1)# %>%
-  select(profession_last_work, employment_period, n) %>% 
+  select(industry, employment_period, n) %>% 
   pivot_wider(values_from = n, names_from = employment_period) %>% 
   mutate_at(c("during_lock", "no_lock"), ~replace_na(.,0)) %>% 
-  mutate(LD  = logratio(during_lock, no_lock)) %>% 
+  mutate_if(is.numeric, list(~(. + 1) / (sum(.) + 1))) %>%
+  mutate(logratio = log(during_lock / no_lock)) %>% 
+  # mutate(LD  = logratio(during_lock, no_lock)) %>% 
   mutate(during_lock_p = during_lock / sum (during_lock),
          no_lock_p = no_lock / sum (no_lock),
          size = no_lock+during_lock) -> df_draw_c_end
 
 g1 = df_draw_c_end %>% 
-  filter(profession_last_work != "None" & profession_last_work !="Не работал" & profession_last_work != "ANONYMIZATION") %>% 
+  # filter(profession_last_work != "None" & profession_last_work !="Не работал" & 
+  filter( industry != "ANONYMIZATION") %>% 
   # filter(size> 100) %>%
-  # slice_max( abs(LD),n = 20) %>% 
-  ggplot(aes(x = during_lock, y = no_lock))+
+  slice_max(abs(logratio),n = 20) %>%
+  ggplot(aes(x = during_lock_p, y = no_lock_p))+
   geom_point(aes(size = size),color = "#FBBE22FF")+
   geom_line(data = tibble(x1 = c(0, 100000), y1 = c(0, 100000)), aes(x1, y1), alpha = 0.5)+
-  geom_text( aes(label=profession_last_work),hjust=1, vjust=0)+
+  # geom_text( aes(label=profession_last_work),hjust=1, vjust=0)+
   theme_minimal()+
-  # ggrepel::geom_text_repel(aes(label=profession_last_work))+
-  ggtitle("Share of the last profession proportions", "Потеря работы")+
-  xlab("During lockdown: from 2020-07-01 to 2020-04-01")+
-  ylab("No lockdown")#+
-  # scale_y_continuous(labels = scales::percent_format())+
-  # scale_x_continuous(labels = scales::percent_format())+
-  # coord_cartesian(ylim = c(0, 0.007516), xlim = c(0, 0.016))
+  ggrepel::geom_text_repel(aes(label=industry))+
+  ggtitle("Share of the last profession proportions", "Потеря работы in Хабаровский край")+
+  xlab("During lockdown: from 2020-04-01 to 2020-07-01")+
+  ylab("Before lockdown")+
+  scale_y_continuous(labels = scales::percent_format())+
+  scale_x_continuous(labels = scales::percent_format())+
+  coord_cartesian(ylim = c(0, 0.15), xlim = c(0, 0.15))
   # coord_cartesian(ylim = c(0, 0.007516), xlim = c(0, 0.016))
 g1
-ggsave(g1, filename = "share.png", width = 10, height = 10)
+ggsave(g1, filename = "share_industry_ХАБ.png", width = 10, height = 10)
 
 ?ggsave
 ```
+
+```{r}
+library(ggalt)
+  # select(-words) %>% 
+  # rename("words" = "key") %>% 
+  # mutate(test = ifelse(adjustBF >= 0.05, "nonsignificant", "significant")) %>%
+  #  kable() #%>% 
+  # mutate(dif = (logDice1- logDice2)) %>% 
+  # mutate(topic = ifelse(logDice1 - logDice2 >= 0, paste("Social Science: topic",topic_1), paste("Physics: topic", topic_2))) %>%
+
+df_draw_c_end_ALL
+
+df_draw_c_end %>%
+  left_join(df_draw_c_end_ALL) %>% 
+  filter(industry != "None" &
+           industry != "Не работал" & 
+           industry != "ANONYMIZATION") %>%
+  filter(during_lock > 0.001 & no_lock > 0.001) %>%
+  slice_max(logratio, n = 20) %>%
+  ggplot(aes(x = no_lock_p, xend = during_lock_p, y = industry)) +
+  geom_dumbbell( 
+    # aes(size_x = size, size_xend = size),
+    size_x = 3.5,
+    size_xend = 3.5,
+    colour_x = "#FBBE22FF",
+    colour_xend = "#210C4AFF"
+  )+
+  geom_point(aes(x = freq), alpha = 0.5, size = 3)+
+  theme_minimal()+
+  ggtitle("In Свердловская область", "yellow is no_lockdown, grey is avg RUSSIA")+
+  xlab("% of fired")
+
+
+  ggtitle(paste("Keywords difference between topics", topic_1,  "and", topic_2), subtitle = "logDice metrics")+
+  labs(x="logDice", y=NULL)+
+  scale_y_discrete(guide = guide_axis(n.dodge = 1))+
+  scale_color_manual(values=c( "magenta4", "cyan4"))+
+  theme(text=element_text(size=16,  family="Roboto"))
+```
+
+
 
 ```{r}
 library(plotly)
@@ -157,6 +254,30 @@ g1 %>%
 
 plot_ly() %>% 
   add_segments(x = 0, xend = 70000, y = 0, yend = 70000)
+```
+
+
+```{r}
+g2 = df_draw_c_end %>% 
+  filter(profession_last_work != "None" & profession_last_work !="Не работал" & profession_last_work != "ANONYMIZATION") %>%
+  # filter(size> 100) %>%
+  slice_max( abs(LD),n = 20) %>%
+  ggplot(aes(x = during_lock_p, y = no_lock_p))+
+  geom_point(aes(size = size),color = "#FBBE22FF")+
+  geom_line(data = tibble(x1 = c(0, 100000), y1 = c(0, 100000)), aes(x1, y1), alpha = 0.5)+
+  # geom_text( aes(label=profession_last_work),hjust=1, vjust=0)+
+  theme_minimal()+
+  ggrepel::geom_text_repel(aes(label=profession_last_work))+
+  ggtitle("Share of the last profession proportions", "Потеря работы")+
+  xlab("During lockdown: from 2020-07-01 to 2020-04-01")+
+  ylab("No lockdown")+
+  scale_y_continuous(labels = scales::percent_format())+
+  scale_x_continuous(labels = scales::percent_format())+
+  coord_cartesian(ylim = c(0, 0.03), xlim = c(0, 0.03))
+  # coord_cartesian(ylim = c(0, 0.007516), xlim = c(0, 0.016))
+
+g2
+ggsave(g2, filename = "share2.png", width = 10, height = 10)
 ```
 
 
