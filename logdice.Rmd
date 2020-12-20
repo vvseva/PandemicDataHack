@@ -11,9 +11,10 @@ Try executing this chunk by clicking the *Run* button within the chunk or by pla
 
 ```{r}
 
-df = vroom::vroom("~/noobsQA/rabota/bezrab1.csv")
+bezrab1 = vroom::vroom("~/noobsQA/rabota/bezrab1.csv")
 
 library(caret)
+library(tidyverse)
 train.index <- createDataPartition(Data$Class, p = .7, list = FALSE)
 train <- Data[ train.index,]
 test  <- Data[-train.index,]
@@ -30,11 +31,11 @@ vroom::vroom_write(bezrab1_sample, "bezrab1_sample.csv")
 
 
 ```{r}
-df %>% 
-  # mutate(prf = word(profession_last_work) %>% str_remove(",")) %>% 
-  count(profession_last_work) -> profs
-
-write.csv(profs, file = "profs.csv")
+# bezrab1 %>% 
+#   # mutate(prf = word(profession_last_work) %>% str_remove(",")) %>% 
+#   count(profession_last_work) -> profs
+# 
+# write.csv(profs, file = "profs.csv")
 
 profs %>%
   mutate(profession_last_work = profession_last_work %>%  
@@ -44,22 +45,22 @@ profs %>%
            str_remove("Генеральный") %>% 
            str_to_lower())
 
-df = df %>% 
+bezrab1 = bezrab1 %>% 
   mutate(month_end_busyness = ymd(month_end_busyness)) 
 
-df = df %>% 
+bezrab1 = bezrab1 %>% 
   filter(month_dismissal != "None") %>% 
   mutate(month_dismissal =  str_c(month_dismissal, "-01") %>% ymd()) %>% 
   filter(month_dismissal > '2019-10-01' & month_dismissal < '2020-07-01') %>% 
   mutate(old_fag = month_dismissal > '2020-04-01' & month_dismissal < '2020-07-01')
 
 
-df %>% 
+bezrab1 %>% 
   count(old_fag)
 ```
 
 ```{r}
-
+professions_profs <- read_csv("~/noobsQA/rabota/professions - profs.csv")
 professions_profs = professions_profs %>% 
   mutate(industry = industry %>% str_remove("\\[.+\\]"))
 
@@ -121,8 +122,12 @@ ratio <- function(a, b) {
 # df = df  %>% 
 #   mutate(month_end_busyness = ymd(month_end_busyness))
 
-df %>% 
-  filter(region == "Свердловская область") %>%
+bezrab1 %>% 
+  # filter(region == "Свердловская область") %>%
+  filter(region == "г. Санкт-Петербург") %>%
+  # filter(region == "Республика Дагестан") %>%
+  # filter(region == "Чеченская Республика") %>%
+  # filter(region == "Республика Ингушетия") %>%
   # mutate(profession_last_work = profession_last_work %>%  
   #          str_remove("\\(.+") %>% 
   #          str_remove(",.+") %>% 
@@ -130,41 +135,48 @@ df %>%
   #          str_remove("Генеральный") %>% 
   #          str_to_lower() %>% 
   #          word()) %>%
-  left_join(professions_profs %>% select(profession_last_work, industry)) %>% 
+  # left_join(professions_profs %>% select(profession_last_work, industry)) %>%
   # mutate(profession_last_work = case_when(
   #   hc_didnotwork == TRUE ~ "Не работал",
   #   TRUE ~ profession_last_work
   # )) %>% 
+rename("industry" = "profession_last_work") %>%
   select(industry, month_dismissal) -> df_draw
 
 
 df_draw %>%
-  filter(month_dismissal < "2020-07-01") %>% 
+  filter(month_dismissal < "2020-10-01" & month_dismissal > "2019-12-01") %>% 
   mutate(
     employment_period = case_when(
-      # month_employment == "2020-12-31" ~ "unemp",
-      month_dismissal < "2020-07-01" & month_dismissal > "2020-04-01" ~ "during_lock",
-      TRUE ~ "no_lock"
+      # month_dismissal < "2020-10-01" & month_dismissal > "2020-07-01" ~ "after_lock",
+      month_dismissal < "2020-07-01" & month_dismissal >= "2020-04-01" ~ "during_lock",
+      month_dismissal < "2020-04-01" ~ "befor_lock"
     )
   ) %>% 
   count(industry, employment_period) %>%
   mutate(n = n %>%  replace_na(0)) %>%
   filter(n > 100) %>% 
-  group_by(employment_period) -> df_draw_c
-  # mutate(freq = n / sum(n)) %>% ungroup()-> df_draw_c
-
-df_draw_c
+  ungroup() %>% 
+  group_by(employment_period) %>% 
+  mutate(n_freq = sum(n)) %>% 
+  ungroup() %>% mutate(
+         n_freq2 = n_freq / (max(n_freq) + min(n_freq) )
+         )%>% ungroup() %>% 
+  mutate(n = round(n / n_freq2))-> df_draw_c
+# df_draw_c
 
 # library(viridis)
 # viridis(7, begin = 0, end = 0.85, option = 'B')[7] # "#FBBE22FF"
 # viridis(7, begin = 0, end = 0.75, option = 'B')[2] # "#210C4AFF"
 # alpha где-то 0.5
-
-df_draw_c %>% 
-  select(industry, n) %>% 
-  group_by(industry) %>% 
-  summarise(n = sum(n)) %>% 
-  mutate(freq = n / sum(n)) -> df_draw_c_end_ALL
+# viridis(7, begin = 0, end = 0.75, option = 'B')[3]
+# viridis(7, begin = 0, end = 0.75, option = 'B')[5]
+# viridis(7, begin = 0, end = 0.85, option = 'B')[7] 
+# df_draw_c %>%
+#   select(industry, n) %>%
+#   group_by(industry) %>%
+#   summarise(n = sum(n)) %>%
+#   mutate(freq = n / sum(n)) -> df_draw_c_end_ALL
 
 df_draw_c %>% 
   # filter(n < 50000) %>% 
@@ -173,40 +185,65 @@ df_draw_c %>%
   # filter(n2> 1)# %>%
   select(industry, employment_period, n) %>% 
   pivot_wider(values_from = n, names_from = employment_period) %>% 
-  mutate_at(c("during_lock", "no_lock"), ~replace_na(.,0)) %>% 
-  mutate_if(is.numeric, list(~(. + 1) / (sum(.) + 1))) %>%
-  mutate(logratio = log(during_lock / no_lock)) %>% 
-  # mutate(LD  = logratio(during_lock, no_lock)) %>% 
-  mutate(during_lock_p = during_lock / sum (during_lock),
-         no_lock_p = no_lock / sum (no_lock),
-         size = no_lock+during_lock) -> df_draw_c_end
+  mutate_at(c("during_lock", "befor_lock"), ~replace_na(.,0)) %>% 
+  # mutate_if(is.numeric, list(~(. + 1) / (sum(.) + 1))) %>%
+  # mutate_at(c("during_lock", "after_lock"), list(~(. + 1) / (sum(.) + 1))) %>%
+  # mutate(logratio = log(during_lock / befor_lock)) %>%
+  mutate(
+    # after_lock_p = after_lock / (after_lock + befor_lock + during_lock),
+         befor_lock_p = befor_lock / (befor_lock + during_lock),
+         during_lock_p = during_lock / (befor_lock + during_lock),
+         size =  befor_lock + during_lock,
+         logratio  = logratio(during_lock, befor_lock)
+         )-> df_draw_c_end
+  # mutate(during_lock_p = during_lock / sum (during_lock),
+  #        befor_lock_p = befor_lock / sum (befor_lock),
+  #        size = befor_lock+during_lock) -> df_draw_c_end
 
-g1 = df_draw_c_end %>% 
-  # filter(profession_last_work != "None" & profession_last_work !="Не работал" & 
-  filter( industry != "ANONYMIZATION") %>% 
-  # filter(size> 100) %>%
-  slice_max(abs(logratio),n = 20) %>%
-  ggplot(aes(x = during_lock_p, y = no_lock_p))+
-  geom_point(aes(size = size),color = "#FBBE22FF")+
-  geom_line(data = tibble(x1 = c(0, 100000), y1 = c(0, 100000)), aes(x1, y1), alpha = 0.5)+
-  # geom_text( aes(label=profession_last_work),hjust=1, vjust=0)+
-  theme_minimal()+
-  ggrepel::geom_text_repel(aes(label=industry))+
-  ggtitle("Share of the last profession proportions", "Потеря работы in Хабаровский край")+
-  xlab("During lockdown: from 2020-04-01 to 2020-07-01")+
-  ylab("Before lockdown")+
-  scale_y_continuous(labels = scales::percent_format())+
-  scale_x_continuous(labels = scales::percent_format())+
-  coord_cartesian(ylim = c(0, 0.15), xlim = c(0, 0.15))
-  # coord_cartesian(ylim = c(0, 0.007516), xlim = c(0, 0.016))
-g1
-ggsave(g1, filename = "share_industry_ХАБ.png", width = 10, height = 10)
+# g1 = df_draw_c_end %>% 
+#   # filter(profession_last_work != "None" & profession_last_work !="Не работал" & 
+#   filter( industry != "ANONYMIZATION") %>% 
+#   # filter(size> 100) %>%
+#   slice_max(abs(logratio),n = 20) %>%
+#   ggplot(aes(x = during_lock_p, y = befor_lock_p))+
+#   geom_point(aes(size = size),color = "#FBBE22FF")+
+#   geom_line(data = tibble(x1 = c(0, 100000), y1 = c(0, 100000)), aes(x1, y1), alpha = 0.5)+
+#   # geom_text( aes(label=profession_last_work),hjust=1, vjust=0)+
+#   theme_minimal()+
+#   ggrepel::geom_text_repel(aes(label=industry))+
+#   ggtitle("Share of the last profession proportions", "Потеря работы in Хабаровский край")+
+#   xlab("During lockdown: from 2020-04-01 to 2020-07-01")+
+#   ylab("Before lockdown")+
+#   scale_y_continuous(labels = scales::percent_format())+
+#   scale_x_continuous(labels = scales::percent_format())+
+#   coord_cartesian(ylim = c(0, 0.15), xlim = c(0, 0.15))
+#   # coord_cartesian(ylim = c(0, 0.007516), xlim = c(0, 0.016))
+# g1
+# ggsave(g1, filename = "share_industry_ХАБ.png", width = 10, height = 10)
+# 
+# ?ggsave
 
-?ggsave
+df_draw_c_end %>%   # left_join(df_draw_c_end_ALL) %>% 
+  filter(industry != "None" &
+           industry != "Не работал" & 
+           industry != "ANONYMIZATION"# & 
+           # industry != " Кадровая служба, управление персоналом"
+           ) %>%
+  filter(during_lock > 0.001 & befor_lock > 0.001 ) %>%
+  # # rename("all_lock" = "freq") %>% 
+  slice_max((abs(logratio)), n = 30) %>%
+  mutate(diff_side = case_when(
+   during_lock > befor_lock ~ "Уволили больше в локдаун",
+   TRUE ~ "Раньше увольняли больше"
+  )) %>% 
+  arrange(logratio) %>% 
+    mutate(industry = fct_reorder(industry, logratio))->df_draw_c_end2
 ```
 
 ```{r}
-library(ggalt)
+# library(ggnewscale)
+
+# library(ggalt)
   # select(-words) %>% 
   # rename("words" = "key") %>% 
   # mutate(test = ifelse(adjustBF >= 0.05, "nonsignificant", "significant")) %>%
@@ -214,36 +251,243 @@ library(ggalt)
   # mutate(dif = (logDice1- logDice2)) %>% 
   # mutate(topic = ifelse(logDice1 - logDice2 >= 0, paste("Social Science: topic",topic_1), paste("Physics: topic", topic_2))) %>%
 
-df_draw_c_end_ALL
+# df_draw_c_end_ALL
 
-df_draw_c_end %>%
-  left_join(df_draw_c_end_ALL) %>% 
-  filter(industry != "None" &
-           industry != "Не работал" & 
-           industry != "ANONYMIZATION") %>%
-  filter(during_lock > 0.001 & no_lock > 0.001) %>%
-  slice_max(logratio, n = 20) %>%
-  ggplot(aes(x = no_lock_p, xend = during_lock_p, y = industry)) +
-  geom_dumbbell( 
-    # aes(size_x = size, size_xend = size),
-    size_x = 3.5,
-    size_xend = 3.5,
-    colour_x = "#FBBE22FF",
-    colour_xend = "#210C4AFF"
+
+
+g_SPB_norm = df_draw_c_end2 %>%
+  pivot_longer(names_to = "Period", cols = ends_with("lock_p")) %>%
+  mutate(Period = factor(Period, levels =c("befor_lock_p", "during_lock_p"))) %>% 
+  # mutate(industry = fct_reorder(industry, logratio)) %>%
+  # ggplot(aes(x = befor_lock_p, xend = during_lock_p, y = industry)) +
+  ggplot() +
+  geom_point(aes(x = value, color = Period, y = industry), size = 5) +
+    scale_color_manual(
+    values = c(
+      "befor_lock_p" = "#56106EFF",
+      "during_lock_p" = "#FBBE22FF"
+    ),
+    labels = c("До локдауна",
+               "Локдаун",
+               "После локдауна"),
+    name = "Период"
   )+
-  geom_point(aes(x = freq), alpha = 0.5, size = 3)+
-  theme_minimal()+
-  ggtitle("In Свердловская область", "yellow is no_lockdown, grey is avg RUSSIA")+
-  xlab("% of fired")
+  new_scale_color() +
+  geom_segment(
+    aes(
+      x = during_lock_p,
+      y = industry,
+      xend = befor_lock_p,
+      yend = industry,
+      color = diff_side
+    ),
+    data = df_draw_c_end2,
+    # arrow = arrow(length = unit(0.2, "inches")),
+    size = 1,
+    show.legend = FALSE
+  ) +
+  theme_minimal() +
+  ggtitle("Как поменялась индустрии безработицы в первой половине 2020 года",
+          "Санкт-Петербург") +
+  # xlab("Доля индустрии среди заявлений за период") +
+    xlab("Доля увольнений в индустрии в период до ковида и во время") +
+  ylab("Индустрия") +
+  scale_x_continuous(labels = scales::percent_format()) +
+  scale_color_manual(
+    values = c(
+      "Уволили больше в локдаун" = "#FBBE22FF",
+      "Раньше увольняли больше" = "#56106EFF"
+    )
+  )+
+  theme(text=element_text(size=14,  family="Helvetica"))+
+  labs(caption = "По данным с биржи труда с 2020-01 по 2020-07-01")
+g_SPB_norm
+g_RAMZAN_norm
+g_SWERD_norm
+g_RUSS
+g_RUSS_norm
 
+# scale_fill_discrete(name = "Dose", labels = c("A", "B", "C"))
 
-  ggtitle(paste("Keywords difference between topics", topic_1,  "and", topic_2), subtitle = "logDice metrics")+
-  labs(x="logDice", y=NULL)+
-  scale_y_discrete(guide = guide_axis(n.dodge = 1))+
-  scale_color_manual(values=c( "magenta4", "cyan4"))+
-  theme(text=element_text(size=16,  family="Roboto"))
+ggsave(g5, filename = "sverd2.png", width = 16, height = 8)
 ```
 
+
+```{r}
+g_RUSS
+ggsave(g_RUSS, filename = "g_RUSS.png", width = 16, height = 8)
+```
+
+На этом графиге мы можем увидеть, как изменилась картина отраслей, из которых люди приходили на биржу труда
+
+И, если, люди, которые потеряли работу до апреля 2020 года стремились встать на биржу труда, чтобы получить пособие, так как они не смогли быстро найти работу
+
+К такой отрасли в первую очередь относится туризм, некомерческие организации и низшие гос служащие, а так же работники культуры и так называемый домашний персонал,
+
+в то время как работники ЖКХ и сельского хозяйства смогли найти себе работу во время пандемии и не прибегали к помощи биржи труда
+
+
+Однако, нам следует принимать во внимание спицифику данных, которые затухают, т.е. на биржу ещё не успели прийти все люди, кто потерял работу с апреля по июль, поэтому будет правильно нормировать количество заявок за 2 периода
+
+для этого мы поделим их на долю периода
+
+```{r}
+g_RUSS_norm
+ggsave(g_RUSS_norm, filename = "g_RUSS_norm.png", width = 16, height = 8)
+```
+
+Здесь же мы видим, что разница между периодами для добывающей и топливной промышленности сравнима с ситуацией гостиничного бизнеса, однако ситуация противоположная
+
+Так на бирже труда больше работников, из добывающей и топливной промышленности, которых уволили в период строгого локдауна и они встали на биржу труда, так как не смогли найти работу, или не надеялись найти работу, а рассчитывали на пособие по безработице
+
+Работники гостиничного бизнеса (и ресторанов) сильно реже оказывались на бирже труда, во время карантина, нежеди до его начала. Это можно связать с мерами поддержки, которые оказывало государство бизнесу, чтобы тот мог платить зарплату работникам
+
+Таким образом, мы здесь видим полярные случаи:
+
++ Работников топливной и добывающей промышленности, которых стали увольнять после падения цен на нефть и сокращения добычи нефти
++ И работников отраслей Гостиничного бизнеса, ресторанов, культуры, которые столкнулись с такими же проблемами как и добывающая и топливная промышленности, однако им посчасливилось быть признаными _пострадавшими от ковида областями_, а значит их работодатель скорее мог (или был вунужлен) не увольнять их, чтобы получать адресную поддержку, налоговые льготы и поцелуи Путина 
+
+
+```{r}
+g_SWERD_norm
+ggsave(g_SWERD_norm, filename = "g_SWERD_norm.png", width = 16, height = 8)
+```
+
+На самом деле если мы смотрим на професии по последнего месту работы для свердловской области, то мы скорее больше можем узнать про специфику региона, чем про реальную проблему ковида, так как мы видим что много работников множества профессий, которые связаны с промышленностью потеряли работу в период локдауна. Однако стоит учитвать то, что у Свердловской области был большой запас промышленности, поэтому оттуда есть кого увольнять
+
+Куда покательнее две пищивые должности: повар и кондитер, у которых в Свердловской области сложилась разная судьба.
+
++ Пекарь, который скорее будет частью большого цеха пищевой промышленности похож на подсобного рабочего или укладчика -- производство сокращают в локдаун -> работников увольняют -> они встают на биржу, чтобы получать пособие
++ Повар же, чаще принадлежит к ресторанам, которые не увольняют работников, а скорее уменьшают им ставку, чтобы получать адресную поддержку. Так работники ресторанов становятся уязвимой группой, которая не может претендовать на пособие
+
+```{r}
+g_RAMZAN_norm
+ggsave(g_RAMZAN_norm, filename = "g_RAMZAN_norm.png", width = 16, height = 8)
+```
+
+В чеченской республике, региональная политика повилияла на рынок в разы сильнее чем коронавирус. Во первых, стоит отметить, что Чечня входит в топ 10 регионов по количеству заявлений на пособие по безработице, причём большая часть из этих заявлений указывает прошлую должность как рабочий. 
+
+Все те, кто работал на _ОЭЗ промышленно-производственного типа "Грозный"_ , которая была созданав декабре 2019, т.е. перед самым началом интересующего нас периода. Так для огромного количества рабочих именно эта дата была последним официальным трудоустройством, и ни одного другого столь масштабного проекта, что требовал бы столько рабочих в чеченской республике за период ковида не появилось. А с приходом ковида, закрытием границ, рабочим ничего не осталось, кроме как встать на биржу труда.
+
+Картина с учителями и воспитателями тоже имеет отнюдь не ковидную природу, что в очередной раз доказывает спицифику этого региона. И большое количество увольнений связано со сменой министра образования.
+
+```{r}
+g_SPB_norm
+ggsave(g_SPB_norm, filename = "g_SPB_norm.png", width = 16, height = 8)
+```
+
+Петербург, как представитель первой Росиии может похвастаться обилием сфер и индустрий, поэтому особенно интересно увидеть вместе с Высшим менеджментом программисты на более чем 10 % стали реже попадать на биржу труда в период локдауна и ковида, чем до него.
+
+Это по большей степени связано со спецификой поиска работы, при которой программисты не прибегают к официальной бирже труда, а высший менеджмент скорее найдёт работу по знакомству или организует собственное предприятие. Однако даже те редкие представители этих профессий, что попадали на биржу до ковида, стали там появляться реже, что может свидетельствовать о их большей востребованности.
+
+Офисные сотрудники и работники транспортных компаний в Петербурге серьёзнее всех пострадали от ковида и локдауна, поэтому были вынуждены встать на биржу труда. Похожая ситуациия и у немногочисленных (в сравнении) работников промышленности.
+
+
+```{r}
+save(g_RUSS, g_RAMZAN_norm, g_RUSS_norm, g_SPB_norm, g_SWERD_norm, file = "DNA_plots.RData")
+```
+
+
+
+```{r}
+g_spb = df_draw_c_end2 %>%
+  pivot_longer(names_to = "Period", cols = ends_with("lock")) %>%
+  mutate(Period = factor(Period, levels = c(
+    "befor_lock", "during_lock", "after_lock"
+  ))) %>%
+  ggplot() +
+  geom_point(aes(x = value, color = Period, y = industry), size = 5) +
+  scale_color_manual(
+    values = c(
+      "befor_lock" = "grey",
+      "during_lock" = "#FBBE22FF",
+      "after_lock" = "#56106EFF"
+    ),
+    labels = c("До локдауна",
+               "Локдаун",
+               "После локдауна"),
+    name = "Период"
+  ) +
+  new_scale_color() +
+  geom_segment(
+    aes(
+      x = during_lock,
+      y = industry,
+      xend = after_lock,
+      yend = industry,
+      color = diff_side
+    ),
+    data = df_draw_c_end2,
+    size = 1,
+    show.legend = FALSE
+  ) +
+  theme_minimal() +
+  ggtitle("Работников каких индустрий уволили в 2020 году",
+          "Санкт-Петербург") +
+  xlab("Доля индустрии среди заявлений за период") +
+  ylab("Индустрия") +
+  scale_x_continuous(labels = scales::percent_format()) +
+  scale_color_manual(
+    values = c(
+      "Уволили больше в локдаун" = "#FBBE22FF",
+      "Раньше увольняли больше" = "#56106EFF"
+    )
+  ) +
+  theme(text = element_text(size = 14,  family = "Helvetica")) +
+  labs(caption = "По данным с биржи труда с 2020-01 по 2020-09-31")
+
+g_spb
+```
+
+```{r}
+g_dag = df_draw_c_end2 %>%
+  pivot_longer(names_to = "Period", cols = ends_with("lock")) %>%
+  mutate(Period = factor(Period, levels = c(
+    "befor_lock", "during_lock", "after_lock"
+  ))) %>%
+  ggplot() +
+  geom_point(aes(x = value, color = Period, y = industry), size = 5) +
+  scale_color_manual(
+    values = c(
+      "befor_lock" = "grey",
+      "during_lock" = "#FBBE22FF",
+      "after_lock" = "#56106EFF"
+    ),
+    labels = c("До локдауна",
+               "Локдаун",
+               "После локдауна"),
+    name = "Период"
+  ) +
+  new_scale_color() +
+  geom_segment(
+    aes(
+      x = during_lock,
+      y = industry,
+      xend = after_lock,
+      yend = industry,
+      color = diff_side
+    ),
+    data = df_draw_c_end2,
+    size = 1,
+    show.legend = FALSE
+  ) +
+  theme_minimal() +
+  ggtitle("Работники каких индустрий обратились в центр занятости в 2020 году",
+          "Республика Дагестан") +
+  xlab("Доля индустрии среди заявлений за период") +
+  ylab("Индустрия") +
+  scale_x_continuous(labels = scales::percent_format()) +
+  scale_color_manual(
+    values = c(
+      "Уволили больше в локдаун" = "#FBBE22FF",
+      "Раньше увольняли больше" = "#56106EFF"
+    )
+  ) +
+  theme(text = element_text(size = 14,  family = "Helvetica")) +
+  labs(caption = "По данным с биржи труда с 2020-01 по 2020-09-31")
+
+g_dag
+```
 
 
 ```{r}
@@ -262,7 +506,7 @@ g2 = df_draw_c_end %>%
   filter(profession_last_work != "None" & profession_last_work !="Не работал" & profession_last_work != "ANONYMIZATION") %>%
   # filter(size> 100) %>%
   slice_max( abs(LD),n = 20) %>%
-  ggplot(aes(x = during_lock_p, y = no_lock_p))+
+  ggplot(aes(x = during_lock_p, y = befor_lock_p))+
   geom_point(aes(size = size),color = "#FBBE22FF")+
   geom_line(data = tibble(x1 = c(0, 100000), y1 = c(0, 100000)), aes(x1, y1), alpha = 0.5)+
   # geom_text( aes(label=profession_last_work),hjust=1, vjust=0)+
@@ -284,7 +528,7 @@ ggsave(g2, filename = "share2.png", width = 10, height = 10)
 ```{r}
 df_draw_c_end %>% 
   filter(during_lock < 0.05) %>% 
-  ggplot(aes(x = during_lock, y = no_lock))+
+  ggplot(aes(x = during_lock, y = befor_lock))+
   geom_point(color = "#FBBE22FF")+
   geom_line(data = tibble(x1 = c(0, Inf), y1 = c(0, Inf)), aes(x1, y1), alpha = 0.5)+
   geom_text( aes(label=profession_last_work),hjust=1, vjust=0)+
@@ -301,7 +545,7 @@ df_draw_c_end %>%
 ```{r}
 df_draw_c_end %>% 
   filter(during_lock < 0.075) %>% 
-  ggplot(aes(x = during_lock, y = no_lock))+
+  ggplot(aes(x = during_lock, y = befor_lock))+
   geom_point(color = "#FBBE22FF")+
   geom_line(data = tibble(x1 = c(0, Inf), y1 = c(0, Inf)), aes(x1, y1), alpha = 0.5)+
   geom_text( aes(label=profession_last_work),hjust=1, vjust=0)+
@@ -316,7 +560,7 @@ df_draw_c_end %>%
 df_draw_c_end %>%
   slice_max(during_lock, n = 100) %>% 
   slice_min(during_lock, n = 20) %>% 
-  ggplot(aes(x = during_lock, y = no_lock))+
+  ggplot(aes(x = during_lock, y = befor_lock))+
   geom_point(color = "#FBBE22FF")+
   geom_line(data = tibble(x1 = c(0, Inf), y1 = c(0, Inf)), aes(x1, y1), alpha = 0.5)+
   geom_text( aes(label=profession_last_work),hjust=1, vjust=0)+
@@ -344,8 +588,83 @@ month_end_business
 
 
 
-Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+## MATCHING
 
-When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+```{r}
+remove(df)
 
-The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+region_unemployed <- df %>% group_by(region) %>% dplyr::count()
+
+gos_rashodi <- vroom::vroom("data.csv")
+# выбираем слово безработные
+regions_rashodi_1 <- gos_rashodi %>% 
+select(text, region, f2020) %>%
+ filter(str_detect(text, "безработн")) %>%
+  group_by(region) %>%
+  summarize(sum_money = sum(f2020)) %>%
+  na.omit()
+
+regions_rashodi_1 <- merge(x = regions_rashodi_1, y = region_unemployed, by = "region", all.x = TRUE) %>%
+  mutate(podush_sum = sum_money/n) %>%
+  select(region, podush_sum)
+
+# выбираем слово безработные  И соц выплаты
+regions_rashodi_2 <- gos_rashodi %>% 
+select(text, region, f2020) %>%
+ filter(str_detect(text, "безработн") & str_detect(tolower(text), "социальные выплат"))%>%
+  group_by(region) %>%
+  summarize(sum_money = sum(f2020)) %>%
+  na.omit()
+
+regions_rashodi_2 <- merge(x = regions_rashodi_2, y = region_unemployed, by = "region", all.x = TRUE) %>%
+  mutate(podush_sum = sum_money/n) %>%
+  select(region, podush_sum)
+
+# мэтчится если в DT примерно так — основная часть названий регионов соотносится с колонкой Регион, оставшиеся — с колонкой region. NA может остаться у байконура
+
+bezrab1[, gini:= mapvalues(bezrab1[, region], thes$Регион, thes$`январь-декабрь`)]
+bezrab1[, gini:= as.numeric(gini)]
+summary(as.numeric(bezrab1$gini))
+bezrab1[, gini:= mapvalues(bezrab1[, region], thes$region, thes$`январь-декабрь`)]
+```
+
+```{r}
+bezrab1_c = bezrab1 %>% 
+  left_join(thes %>% select(region, `январь-декабрь`), by = "region") %>% 
+  left_join(regions_rashodi_2, by = "region")
+```
+
+```{r}
+bezrab1_c %>% 
+  select(`январь-декабрь`, podush_sum, region) %>% 
+  unique() -> bezrab1_c_to_draw
+
+g3 = bezrab1_c_to_draw %>% 
+  ggplot(aes(x = `январь-декабрь`, y = podush_sum), color = "#FBBE22FF")+
+  geom_point(alpha = 0.5)+
+    # geom_text( aes(label=region),hjust=1, vjust=0)+
+   ggrepel::geom_text_repel( aes(label=region))+
+  theme_minimal()+
+  scale_x_log10()+
+  scale_y_log10()
+# ?sprintf
+g3
+
+ggsave(g3, file = "scatter_log.png", width = 10, height = 10)
+
+g3 %>% 
+  ggplotly()
+```
+
+
+```{r}
+df <- data.frame(a=letters, b=LETTERS, x=runif(26), y=runif(26))
+
+g <- ggplot(df, aes(x,y)) + 
+       geom_point(aes(text=sprintf("Letter: %s", a)))
+
+g
+
+(gg <- ggplotly(g))
+```
+
